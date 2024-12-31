@@ -221,7 +221,7 @@ class InfinityMemoryService:
                             f"{self.config.EMBEDDING_SERVICE_URL}/api/embeddings",
                             headers={"Content-Type": "application/json"},
                             json=payload,
-                            ssl=False if "localhost" in self.config.EMBEDDING_SERVICE_URL else self.ssl_context
+                            ssl=False if "http://" in self.config.EMBEDDING_SERVICE_URL else self.ssl_context
                     ) as response:
                         if response.status != 200:
                             raise Exception(f"Ollama embedding service error: {await response.text()}")
