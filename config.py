@@ -7,6 +7,7 @@ class MemoryServiceConfig(BaseSettings):
     INFINITY_PORT: int = 23817
 
     # 向量服务配置
+    EMBEDDING_SERVICE_TYPE: str = "openai"
     EMBEDDING_SERVICE_URL: str = "https://openai.linktre.cc/v1/embeddings"
     EMBEDDING_API_KEY: str = ""
     EMBEDDING_MODEL: str = "text-embedding-3-small"

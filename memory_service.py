@@ -211,21 +211,49 @@ class InfinityMemoryService:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.config.EMBEDDING_API_KEY}"
         }
-        payload = {
-            "input": text,
-            "model": self.config.EMBEDDING_MODEL
-        }
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                    self.config.EMBEDDING_SERVICE_URL,
-                    headers=headers,
-                    json=payload,
-                    ssl=self.ssl_context
-            ) as response:
-                if response.status != 200:
-                    raise Exception(f"Embedding service error: {await response.text()}")
-                result = await response.json()
-                return result['data'][0]['embedding']
+
+        try:
+            if self.config.EMBEDDING_SERVICE_TYPE.lower() == "openai":
+                # OpenAI API 调用
+                payload = {
+                    "input": text,
+                    "model": self.config.EMBEDDING_MODEL
+                }
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                            self.config.EMBEDDING_SERVICE_URL,
+                            headers=headers,
+                            json=payload,
+                            ssl=self.ssl_context
+                    ) as response:
+                        if response.status != 200:
+                            raise Exception(f"OpenAI embedding service error: {await response.text()}")
+                        result = await response.json()
+                        return result['data'][0]['embedding']
+
+            elif self.config.EMBEDDING_SERVICE_TYPE.lower() == "ollama":
+                # Ollama API 调用
+                payload = {
+                    "model": self.config.EMBEDDING_MODEL,
+                    "prompt": text
+                }
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                            f"{self.config.EMBEDDING_SERVICE_URL}/api/embeddings",
+                            headers=headers,
+                            json=payload,
+                            ssl=False if "localhost" in self.config.EMBEDDING_SERVICE_URL else self.ssl_context
+                    ) as response:
+                        if response.status != 200:
+                            raise Exception(f"Ollama embedding service error: {await response.text()}")
+                        result = await response.json()
+                        return result['embedding']
+            else:
+                raise ValueError(f"Unsupported embedding service type: {self.config.EMBEDDING_SERVICE_TYPE}")
+
+        except Exception as e:
+            logger.error(f"Error in _get_embedding: {str(e)}")
+            raise
 
     async def add_memory(self,
                          tenant_id: str,
