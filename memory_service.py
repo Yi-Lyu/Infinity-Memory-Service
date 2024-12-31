@@ -171,13 +171,15 @@ class InfinityMemoryService:
         table_name = self._get_table_name(tenant_id, project_id)
         if table_name not in self._table_cache:
             try:
+                # 根据不同的模型设置正确的向量类型
+                vector_type = "double" if self.config.EMBEDDING_SERVICE_TYPE.lower() == "ollama" else "float"
                 # 尝试创建新表
                 table = self.db.create_table(
                     table_name,
                     {
                         "memory_id": {"type": "varchar"},
                         "content": {"type": "varchar"},
-                        "embedding": {"type": f"vector,{self.config.EMBEDDING_DIM},float"},
+                        "embedding": {"type": f"vector,{self.config.EMBEDDING_DIM},{vector_type}"},  # 向量类型
                         "timestamp": {"type": "timestamp"},
                         "metadata": {"type": "varchar"},
                         "tags": {"type": "varchar"}
@@ -207,14 +209,36 @@ class InfinityMemoryService:
 
     async def _get_embedding(self, text: str) -> List[float]:
         """调用外部向量化服务获取文本的向量表示"""
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.config.EMBEDDING_API_KEY}"
-        }
-
         try:
-            if self.config.EMBEDDING_SERVICE_TYPE.lower() == "openai":
+            if self.config.EMBEDDING_SERVICE_TYPE.lower() == "ollama":
+                # Ollama API 调用
+                payload = {
+                    "model": self.config.EMBEDDING_MODEL,
+                    "prompt": text
+                }
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                            f"{self.config.EMBEDDING_SERVICE_URL}/api/embeddings",
+                            headers={"Content-Type": "application/json"},
+                            json=payload,
+                            ssl=False if "localhost" in self.config.EMBEDDING_SERVICE_URL else self.ssl_context
+                    ) as response:
+                        if response.status != 200:
+                            raise Exception(f"Ollama embedding service error: {await response.text()}")
+                        result = await response.json()
+                        # 确保返回的向量维度正确
+                        embedding = result['embedding']
+                        if len(embedding) != self.config.EMBEDDING_DIM:
+                            raise ValueError(
+                                f"Embedding dimension mismatch. Expected {self.config.EMBEDDING_DIM}, got {len(embedding)}")
+                        # 将向量值转换为 double 类型
+                        return [float(x) for x in embedding]
+            else:
                 # OpenAI API 调用
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.config.EMBEDDING_API_KEY}"
+                }
                 payload = {
                     "input": text,
                     "model": self.config.EMBEDDING_MODEL
@@ -230,26 +254,6 @@ class InfinityMemoryService:
                             raise Exception(f"OpenAI embedding service error: {await response.text()}")
                         result = await response.json()
                         return result['data'][0]['embedding']
-
-            elif self.config.EMBEDDING_SERVICE_TYPE.lower() == "ollama":
-                # Ollama API 调用
-                payload = {
-                    "model": self.config.EMBEDDING_MODEL,
-                    "prompt": text
-                }
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                            f"{self.config.EMBEDDING_SERVICE_URL}/api/embeddings",
-                            headers=headers,
-                            json=payload,
-                            ssl=False if "localhost" in self.config.EMBEDDING_SERVICE_URL else self.ssl_context
-                    ) as response:
-                        if response.status != 200:
-                            raise Exception(f"Ollama embedding service error: {await response.text()}")
-                        result = await response.json()
-                        return result['embedding']
-            else:
-                raise ValueError(f"Unsupported embedding service type: {self.config.EMBEDDING_SERVICE_TYPE}")
 
         except Exception as e:
             logger.error(f"Error in _get_embedding: {str(e)}")
